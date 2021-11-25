@@ -19,4 +19,7 @@
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <Media Include="sample.mp4" />
+  </ItemGroup>
 </Project>

@@ -1,124 +1,48 @@
-// This file is part of OpenCV project.
-// It is subject to the license terms in the LICENSE file found in the top-level directory
-// of this distribution and at http://opencv.org/license.html
-
-#include "opencv2/core.hpp"
-#include "opencv2/imgproc.hpp"
-#include "opencv2/video.hpp"
-#include "opencv2/videoio.hpp"
-#include "opencv2/highgui.hpp"
 #include <iostream>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 
-using namespace std;
-using namespace cv;
-
-int main(int argc, const char** argv)
+int main()
 {
-    const String keys = "{c camera     | 0 | use video stream from camera (device index starting from 0) }"
-        "{fn file_name |   | use video file as input }"
-        "{m method | mog2 | method: background subtraction algorithm ('knn', 'mog2')}"
-        "{h help | | show help message}";
-    CommandLineParser parser(argc, argv, keys);
-    parser.about("This sample demonstrates background segmentation.");
-    if (parser.has("help"))
-    {
-        parser.printMessage();
-        return 0;
-    }
-    int camera = parser.get<int>("camera");
-    String file = parser.get<String>("file_name");
-    String method = parser.get<String>("method");
-    if (!parser.check())
-    {
-        parser.printErrors();
-        return 1;
-    }
+    cv::Mat image = cv::imread("BG_abs.jpg");
+    cv::namedWindow("Original Image");
+    cv::imshow("Original Image", image);
 
-    VideoCapture cap;
-    if (file.empty())
-        cap.open(camera);
-    else
-    {
-        file = samples::findFileOrKeep(file);  // ignore gstreamer pipelines
-        cap.open(file.c_str());
-    }
-    if (!cap.isOpened())
-    {
-        cout << "Can not open video stream: '" << (file.empty() ? "<camera>" : file) << "'" << endl;
-        return 2;
-    }
+    // 입력 영상에 대한 부분 전경/배경 레이블을 지정하는 방법
+    // 전경 객체 내부를 포함하는 내부 직사각형을 정의
+    cv::Rect rectangle(10, 300, 580, 180);
+    // 경계 직사각형 정의
+    // 직사각형 밖의 화소는 배경으로 레이블링
 
-    Ptr<BackgroundSubtractor> model;
-    if (method == "knn")
-        model = createBackgroundSubtractorKNN();
-    else if (method == "mog2")
-        model = createBackgroundSubtractorMOG2();
-    if (!model)
-    {
-        cout << "Can not create background model using provided method: '" << method << "'" << endl;
-        return 3;
-    }
+   // 입력 영상과 자체 분할 영상 외에 cv::grabCut 함수를 호출할 때
+   // 이 알고리즘에 의해 만든 모델을 포함하는 두 행렬의 정의가 필요
+    cv::Mat result; // 분할 (4자기 가능한 값)
+    cv::Mat bgModel, fgModel; // 모델 (초기 사용)
+    cv::grabCut(image,    // 입력 영상
+        result,    // 분할 결과
+        rectangle,   // 전경을 포함하는 직사각형
+        bgModel, fgModel, // 모델
+        5,     // 반복 횟수
+        cv::GC_INIT_WITH_RECT); // 직사각형 사용
+       // cv::CC_INT_WITH_RECT 플래그를 이용한 경계 직사각형 모드를 사용하도록 지정
 
-    cout << "Press <space> to toggle background model update" << endl;
-    cout << "Press 's' to toggle foreground mask smoothing" << endl;
-    cout << "Press ESC or 'q' to exit" << endl;
-    bool doUpdateModel = true;
-    bool doSmoothMask = false;
+     // cv::GC_PR_FGD 전경에 속할 수도 있는 화소(직사각형 내부의 화소 초기값)
+     // cv::GC_PR_FGD와 동일한 값을 갖는 화소를 추출해 분할한 이진 영상을 얻음
+    cv::compare(result, cv::GC_PR_FGD, result, cv::CMP_EQ);
+    // 전경일 가능성이 있는 화소를 마크한 것을 가져오기
+    cv::Mat foreground(image.size(), CV_8UC3, cv::Scalar(255, 255, 255));
+    // 결과 영상 생성
+    image.copyTo(foreground, result);
+    // 배경 화소는 복사되지 않음
 
-    Mat inputFrame, frame, foregroundMask, foreground, background;
-    for (;;)
-    {
-        // prepare input frame
-        cap >> inputFrame;
-        if (inputFrame.empty())
-        {
-            cout << "Finished reading: empty frame" << endl;
-            break;
-        }
-        const Size scaledSize(640, 640 * inputFrame.rows / inputFrame.cols);
-        resize(inputFrame, frame, scaledSize, 0, 0, INTER_LINEAR);
+    cv::namedWindow("Result");
+    cv::imshow("Result", result);
 
-        // pass the frame to background model
-        model->apply(frame, foregroundMask, doUpdateModel ? -1 : 0);
+    cv::namedWindow("Foreground");
+    cv::imshow("Foreground", foreground);
 
-        // show processed frame
-        imshow("image", frame);
+    cv::waitKey(0);
 
-        // show foreground image and mask (with optional smoothing)
-        if (doSmoothMask)
-        {
-            GaussianBlur(foregroundMask, foregroundMask, Size(11, 11), 3.5, 3.5);
-            threshold(foregroundMask, foregroundMask, 10, 255, THRESH_BINARY);
-        }
-        if (foreground.empty())
-            foreground.create(scaledSize, frame.type());
-        foreground = Scalar::all(0);
-        frame.copyTo(foreground, foregroundMask);
-        imshow("foreground mask", foregroundMask);
-        imshow("foreground image", foreground);
-
-        // show background image
-        model->getBackgroundImage(background);
-        if (!background.empty())
-            imshow("mean background image", background);
-
-        // interact with user
-        const char key = (char)waitKey(30);
-        if (key == 27 || key == 'q') // ESC
-        {
-            cout << "Exit requested" << endl;
-            break;
-        }
-        else if (key == ' ')
-        {
-            doUpdateModel = !doUpdateModel;
-            cout << "Toggle background update: " << (doUpdateModel ? "ON" : "OFF") << endl;
-        }
-        else if (key == 's')
-        {
-            doSmoothMask = !doSmoothMask;
-            cout << "Toggle foreground mask smoothing: " << (doSmoothMask ? "ON" : "OFF") << endl;
-        }
-    }
     return 0;
 }
