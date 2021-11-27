@@ -75,6 +75,34 @@ void CustomBlur(Mat& image, Mat& result, int size) {
   }
 }
 
+void CustomMorphology(Mat& image, Mat& result, int size, int operation) {
+  int rows = image.rows, cols = image.cols;
+  if (image.isContinuous() && result.isContinuous()) {
+    cols = rows * cols;
+    rows = 1;
+  }
+  for (int row = 0; row < rows; row++) {
+    uchar* pointer_row = image.ptr<uchar>(row);
+    uchar* pointer_row_result = result.ptr<uchar>(row);
+    for (int col = 0; col < cols; col++) {
+      int sum = 0;
+      for (int i = -size / 2; i <= size / 2; i++) {
+        for (int j = -size / 2; j <= size / 2; j++) {
+          if (row + i >= 0 && row + i < rows && col + j >= 0 &&
+              col + j < cols) {
+            sum += pointer_row[(row + i) * cols + col + j];
+          }
+        }
+      }
+      if (operation == MORPH_OPEN) {
+        pointer_row_result[col] = sum / (size * size);
+      } else if (operation == MORPH_CLOSE) {
+        pointer_row_result[col] = 255 - sum / (size * size);
+      }
+    }
+  }
+}
+
 void bgSub(Mat& src) {
   convertColorToGray(src, src);
   // cvtColor(src, src, COLOR_RGB2GRAY);
@@ -82,8 +110,11 @@ void bgSub(Mat& src) {
   CustomBlur(src, src, 7);
   convertGrayToBinary(src, src, 50, 255);
   Mat element = getStructuringElement(MORPH_RECT, Size(7, 7));
-  morphologyEx(src, src, 3, element);
-  morphologyEx(src, src, 2, element);
+  // morphologyEx(src, src, 3, element);
+  // morphologyEx(src, src, 2, element);
+  CustomMorphology(src, src, 7, MORPH_OPEN);
+  CustomMorphology(src, src, 7, MORPH_CLOSE);
+  imshow("src", src);
 }
 
 int main() {
